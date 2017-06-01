@@ -24,6 +24,17 @@
 
 ;;; Code:
 
+(defun get-string-from-file (filePath)
+  "Return filePath's file content."
+  (with-temp-buffer
+    (insert-file-contents filePath)
+    (buffer-string)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun unrepl-read-blob ()
+  ;;TODO don't hard code this
+  (get-string-from-file "/home/arne/github/unrepl.el/blob.clj"))
 
 (defvar-local unrepl-repl-input-start-mark nil)
 (defvar-local unrepl-hello-payload nil)
@@ -105,9 +116,14 @@
       (insert string)
       (goto-char orig-point)
       ;;(message (prin1-to-string (list :ok orig-point (eq orig-point 0) string)))
+
       (when (eq orig-point 1)
-        (search-forward "[:unrepl/hello")
-        (left-char (length "[:unrepl/hello")))
+        (right-char 7)
+        (process-send-string unrepl-process (unrepl-read-blob))
+        ;; (search-forward "[:unrepl/hello")
+        ;; (left-char (length "[:unrepl/hello"))
+        )
+
       (let ((form (edn-read)))
         (while form
           (unrepl-edn-handler form)
@@ -157,12 +173,64 @@
                         :sentinel #'unrepl-process-sentinel
                         :connection-type 'pipe)))
 
+(defun unrepl-connect (host-port)
+  (interactive "MSocket repl host/port: ")
+
+  (when (get-buffer "*unrepl-output*")
+    (kill-buffer "*unrepl-output*"))
+
+  (with-current-buffer (get-buffer-create "*unrepl-repl*")
+    (unrepl-repl-mode))
+
+  (let* ((host-port (s-split ":" host-port))
+         (host-given? (= (length host-port) 2))
+         (host (if host-given?
+                   (first host-port)
+                 "localhost"))
+         (port (string-to-number
+                (if host-given?
+                    (second host-port)
+                  (first host-port)))))
+    (setq unrepl-process (make-network-process
+                          :name "unrepl"
+                          :buffer "*unrepl-process*"
+                          :host host
+                          :service port
+                          :filter #'unrepl-handle-output
+                          :sentinel #'unrepl-process-sentinel))
+    (switch-to-buffer "*unrepl-repl*")))
+
+(defun unrepl-eval-last-sexp ()
+  (interactive)
+  (process-send-string unrepl-process (concat (cider-last-sexp) "\n")))
+
+(defun unrepl-close ()
+  (interactive)
+  (when (get-buffer "*unrepl-output*")
+    (kill-buffer "*unrepl-output*"))
+  (when (get-buffer "*unrepl-repl*")
+    (kill-buffer "*unrepl-repl*"))
+  (when (get-buffer "*unrepl-process*")
+    (kill-buffer "*unrepl-process*")))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defvar unrepl-repl-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'unrepl-repl-return)
     map))
 
 (define-derived-mode unrepl-repl-mode fundamental-mode "Unrepl")
+
+(defvar unrepl-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-x C-e") #'unrepl-eval-last-sexp)
+    map))
+
+(define-minor-mode unrepl-mode
+  nil
+  "unrepl"
+  unrepl-mode-map)
 
 ;; (progn
 ;;   (when (get-buffer "*unrepl-process*")
