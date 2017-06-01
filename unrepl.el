@@ -32,9 +32,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(setq unrepl-home (file-name-directory load-file-name))
+
+(defun unrepl-test ()
+  load-file-name)
+
 (defun unrepl-read-blob ()
   ;;TODO don't hard code this
-  (get-string-from-file "/home/arne/github/unrepl.el/blob.clj"))
+  (get-string-from-file (expand-file-name "blob.clj" unrepl-home)))
 
 (defvar-local unrepl-repl-input-start-mark nil)
 (defvar-local unrepl-hello-payload nil)
