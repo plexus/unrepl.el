@@ -10,7 +10,7 @@ An Emacs client for [unrepl](https://github.com/cgrand/unrepl).
 Start a socket REPL, e.g.
 
 ```
-JAVA_OPTS="-Dclojure.server.unrepl={:address \"127.0.0.1\" :port 5555 :accept unrepl.repl/start}" lein run -m clojure.main/main
+JAVA_OPTS="-Dclojure.server.unrepl={:address \"127.0.0.1\" :port 5555 :accept clojure.core.server/repl}" lein run -m clojure.main/main
 ```
 
 or
