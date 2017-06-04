@@ -4,6 +4,7 @@
 
 ;; Author: Arne Brasseur <arne@arnebrasseur.net>
 ;; Keywords: tools, lisp, comm
+;; Package-Requires: ((clojure-mode "") (dash "") (let-alist "") (peg "0.6") (edn ""))
 
 ;; This program is free software; you can redistribute it and/or modify it under
 ;; the terms of the Mozilla Public License Version 2.0
@@ -18,23 +19,17 @@
 
 ;;; Commentary:
 
-;;
+;; A client for the unrepl protocol, for interactive Clojure development
 
 ;;; Code:
 
-(require 'edn)
+(require 'let-alist)
 (require 'clojure-mode)
 (require 'dash)
+(require 'ansi-color)
 
-(edn-add-reader :unrepl/param (lambda (x) `(:unrepl/param . ,x)))
-(edn-add-reader :unrepl/ns (lambda (x) `(:unrepl/ns . ,x)))
-(edn-add-reader :unrepl/ratio (lambda (x) `(:unrepl/ratio . ,x)))
-(edn-add-reader :unrepl/meta (lambda (x) `(:unrepl/meta . ,x)))
-(edn-add-reader :unrepl/pattern (lambda (x) `(:unrepl/pattern . ,x)))
-(edn-add-reader :unrepl/object (lambda (x) `(:unrepl/object . ,x)))
-(edn-add-reader :unrepl.java/class (lambda (x) `(:unrepl.java/class . ,x)))
-(edn-add-reader :unrepl/... (lambda (x) `(:unrepl/... . ,x)))
-(edn-add-reader :error #'identity)
+(require 'unrepl-reader)
+(require 'unrepl-writer)
 
 (defvar unrepl-blob-path
   (expand-file-name "blob.clj" (file-name-directory load-file-name))
@@ -77,45 +72,6 @@ instead."
                         (when (looking-at-p "\n") (forward-char 1))
                         (point))))))
 
-
-(defun unrepl--elision? (x)
-  (and (listp x) (eq (first x) :unrepl/...)))
-
-(defun unrepl--insert-elision-button (edn)
-  (insert-button
-   "..."
-   'buffer (current-buffer)
-   'point (point)
-   'get-more (gethash :get (cdr edn))
-   'action (lambda (b)
-             (save-excursion
-               (with-current-buffer (button-get b 'buffer)
-                 (let-alist (unrepl--connection)
-                   (goto-char (button-get b 'point))
-                   (delete-char 3)
-                   (process-send-string .process (concat (edn-print-string (button-get b 'get-more)) "\n")))
-                   )))))
-
-
-(defun unrepl--insert-edn-list-inner (edn)
-  (-map-indexed (lambda (idx x)
-                  (when (> idx 0)
-                    (insert " "))
-                  (if (unrepl--elision? x)
-                      (unrepl--insert-elision-button x)
-                    (unrepl--insert-edn x)))
-                edn))
-
-(defun unrepl--insert-edn-list (edn)
-  (insert "(")
-  (unrepl--insert-edn-list-inner edn)
-  (insert ")"))
-
-(defun unrepl--insert-edn (edn)
-  (if (listp edn)
-      (unrepl--insert-edn-list edn)
-    (insert (edn-print-string edn))))
-
 (defun unrepl--read-blob ()
   (with-temp-buffer
     (insert-file-contents unrepl-blob-path)
@@ -134,7 +90,7 @@ instead."
     (insert "\n"))
   (unrepl--insert-prompt
    (symbol-name
-    (cdr (gethash 'clojure.core/*ns* payload)))))
+    (third (gethash 'clojure.core/*ns* payload)))))
 
 ;; TODO store the payload so we can :interrupt or :background
 (defun unrepl--handle-started-eval (payload))
@@ -142,12 +98,12 @@ instead."
 (defun unrepl--handle-out (payload)
   (if (eq (current-column) 0)
       (unrepl--insert-with-face "#_out| " 'font-lock-constant-face))
-  (insert payload))
+  (insert (ansi-color-apply payload)))
 
 (defun unrepl--handle-err (payload)
   (if (eq (current-column) 0)
       (unrepl--insert-with-face "#_err| " 'font-lock-warning-face))
-  (insert payload))
+  (insert (ansi-color-apply payload)))
 
 (defun unrepl--handle-eval (payload)
   (when (not (eq (current-column) 0))
@@ -155,7 +111,7 @@ instead."
     ;; for no good reason
     ;; (unrepl--insert-with-face "%" 'custom-set)
     (insert "\n"))
-  (unrepl--insert-edn payload)
+  (unrepl--write payload)
   (insert "\n"))
 
 (defun unrepl--handle-bye (payload))
@@ -201,10 +157,11 @@ instead."
           ;; (left-char (length "[:unrepl/hello"))
           )
 
-        (let ((form (edn-read)))
+        (let ((form (unrepl--edn-read)))
+          (prin1 (list "=>" form))
           (while form
             (unrepl-edn-handler form)
-            (setq form (edn-read))))))))
+            (setq form (unrepl--edn-read))))))))
 
 (defun unrepl-process-sentinel (proc event)
   ;;(message (concat "EVT->" (prin1-to-string event)))
@@ -242,8 +199,9 @@ instead."
       (insert "\n")
       (condition-case nil
           (let ((cmd (buffer-substring-no-properties unrepl-repl-input-start-mark (point-max))))
-            (edn-read cmd)
-            (process-send-string .process cmd))
+            ;;(unrepl--edn-read cmd)
+            (process-send-string .process cmd)
+            )
         (error (insert "#_=> "))))))
 
 (defun unrepl-connect (host-port)
@@ -324,9 +282,11 @@ instead."
     (define-key map (kbd "C-x C-e") #'unrepl-eval-last-sexp)
     map))
 
+;;;###autoload
 (define-minor-mode unrepl-mode
+  "Minor mode to get evaluation capabilities in source buffers."
   nil
-  "unrepl"
+  " UN"
   unrepl-mode-map)
 
 
