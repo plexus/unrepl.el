@@ -44,7 +44,31 @@
   "List of unrepl connection objects")
 
 (defvar-local unrepl-connection nil
-  "Connection used by the current buffer. An alist of process, repl-buffer, output-buffer, position, eval-handlers.")
+  "Connection used by the current buffer. An alist of process, repl-buffer, output-buffer, position, history.")
+
+(eval-when-compile
+  (defmacro unrepl-deffield (name)
+
+    `(progn
+       (defun ,(intern (concat "unrepl--@" (symbol-name name))) ()
+           (cdr (assq ',name (unrepl--connection))))
+       (defun ,(intern (concat "unrepl--" (symbol-name name))) ()
+           (assq ',name (unrepl--connection)))
+       (cl-defmethod (setf ,(intern (concat "unrepl--@" (symbol-name name)))) (val)
+         (setf (cdr (assq ',name (unrepl--connection)))
+               val)))))
+
+(unrepl-deffield process)
+(unrepl-deffield repl-buffer)
+(unrepl-deffield output-buffer)
+(unrepl-deffield position)
+(unrepl-deffield history)
+
+(defmacro unrepl-with-readonly-insert (&rest body)
+  `(let ((__p (point))
+         (inhibit-read-only t))
+     ,@body
+     (add-text-properties __p (point) '(read-only t front-sticky t rear-nonsticky t))))
 
 ;; borrowed from CIDER
 (defun unrepl-defun-at-point (&optional bounds)
@@ -81,6 +105,22 @@ instead."
 (defun unrepl--insert-with-face (str face)
   (put-text-property 0 (length str) 'face face str)
   (insert str))
+
+(defun unrepl--history-search (history position index)
+  (let ((top (car history)))
+    (if (<= (alist-get 'position top) position)
+        index
+      (unrepl--history-search (cdr history) position (1+ index)))))
+
+(defun unrepl--history-by-position (position)
+  (seq-elt (unrepl--@history)
+           (unrepl--history-search (unrepl--@history) position 0)))
+
+(cl-defmethod (setf unrepl--history-by-position) (value position)
+  (setf (seq-elt
+         (unrepl--@history)
+         (unrepl--history-search (unrepl--@history) position 0))
+        value))
 
 (defun unrepl--history-idx (key value)
   (let* ((conn (unrepl--connection))
@@ -123,7 +163,7 @@ instead."
 (defun unrepl--handle-read (form)
   (seq-let [_ pos-info id] form
     (let* ((offset (gethash :offset pos-info)))
-      (push (cons 'id id) (unrepl--history-by 'position offset)))))
+      (push (cons 'id id) (unrepl--history-by-position offset)))))
 
 ;; [:started-eval {:actions {:interrupt (unrepl.replG__1801/interrupt! :session2160 2), :background (unrepl.replG__1801/background! :session2160 2)}} 2]
 (defun unrepl--handle-started-eval (payload))
@@ -145,7 +185,13 @@ instead."
 
 (defun unrepl--handle-bye (payload))
 
-(defun unrepl--handle-log (payload))
+;; [:log [:info "user" #inst "2017-04-04T14:56:56.574-00:00" "a" (0 1 2 3 4 5 6 7 8 9 #unrepl/... {:get (unrepl.repl/fetch :G__3948)})] 12]
+;; level, key, inst, args
+(defun unrepl--handle-log (payload)
+  (unrepl-with-readonly-insert
+   (unrepl--insert-with-face "#_log| " 'font-lock-constant-face)
+   (unrepl--write payload)))
+
 
 (defun unrepl--handle-exception (payload)
   (if (not (eq (current-column) 0))
@@ -223,25 +269,36 @@ instead."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Commands and Modes
 
+(defun unrepl-repl-eval-callback (result)
+  (unrepl-with-readonly-insert
+   (unrepl--write result)
+   (insert "\n")))
+
 (defun unrepl-repl-return ()
   (interactive)
   (when (eq (point) (line-end-position))
     (let-alist (unrepl--connection)
-      (message "before")
+      (insert "\n")
       (let ((inhibit-read-only t))
         (add-text-properties unrepl-prompt-end-mark (point-max)
                              '(read-only t
                                front-sticky t
                                rear-nonsticky t)))
-      (message "after")
-      (insert "\n")
-      (message "newline")
       (let ((cmd (buffer-substring-no-properties unrepl-input-start-mark (point-max))))
+        (condition-case nil
+            (scan-sexps unrepl-prompt-end-mark most-positive-fixnum)
+          (error
+           (insert "#_=> ")
+           (add-text-properties (- (point) 5) (point)
+                                '(font-lock-face font-lock-keyword-face
+                                  read-only t
+                                  intangible t
+                                  front-sticky t
+                                  rear-nonsticky t))))
         (setq unrepl-input-start-mark (point))
-        (unrepl-eval cmd #'unrepl--write)))))
+        (unrepl-eval cmd #'unrepl-repl-eval-callback)))))
 
 (defun unrepl-eval (form handler)
-  (message "Eval %S" form)
   (let* ((connection (unrepl--connection))
          (position   (assq 'position connection))
          (history    (assq 'history connection))

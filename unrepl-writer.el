@@ -78,10 +78,16 @@
            (unrepl--write value))))))
 
 (defun unrepl--write (edn)
-  (if (listp edn)
-      (if (unrepl--tagged-literal? edn)
-          (unrepl--write-tagged-literal edn)
-        (unrepl--write-list edn))
-    (insert (edn-print-string edn))))
+  (cond
+   ((eq edn nil)
+    (insert "nil"))
+
+   ((listp edn)
+    (if (unrepl--tagged-literal? edn)
+        (unrepl--write-tagged-literal edn)
+      (unrepl--write-list edn)))
+
+   (t
+    (insert (edn-print-string edn)))))
 
 (provide 'unrepl-writer)
