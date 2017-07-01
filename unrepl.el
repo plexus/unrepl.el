@@ -35,8 +35,6 @@
   (expand-file-name "blob.clj" (file-name-directory load-file-name))
   "Path to the unrepl 'upgrade blob', created with `lein unrepl-make-blob'.")
 
-(defvar-local unrepl-input-start-mark nil)
-(defvar-local unrepl-prompt-end-mark nil)
 (defvar-local unrepl-buffer-type nil)
 
 (defvar unrepl-connections nil
@@ -69,6 +67,8 @@
 (unrepl-deffield (unrepl--connection) position)
 (unrepl-deffield (unrepl--connection) history)
 (unrepl-deffield (unrepl--connection) write-fn)
+(unrepl-deffield (unrepl--connection) prompt-end)
+(unrepl-deffield (unrepl--connection) input-start)
 
 (defmacro unrepl-with-readonly-insert (&rest body)
   `(let ((__p (point))
@@ -257,8 +257,8 @@ instead."
       (insert "\n"))
   (let ((prompt-start (point)))
     (insert (concat namespace "=> "))
-    (setq unrepl-input-start-mark (point))
-    (setq unrepl-prompt-end-mark (point))
+    (setf (unrepl-@input-start) (point))
+    (setf (unrepl-@prompt-end) (point))
     (add-text-properties prompt-start (point)
                          '(font-lock-face font-lock-keyword-face
                            read-only t
@@ -284,26 +284,25 @@ instead."
 (defun unrepl-repl-return ()
   (interactive)
   (when (eq (point) (line-end-position))
-    (let-alist (unrepl--connection)
-      (insert "\n")
-      (let ((inhibit-read-only t))
-        (add-text-properties unrepl-prompt-end-mark (point-max)
-                             '(read-only t
-                               front-sticky t
-                               rear-nonsticky t)))
-      (let ((cmd (buffer-substring-no-properties unrepl-input-start-mark (point-max))))
-        (condition-case nil
-            (scan-sexps unrepl-prompt-end-mark most-positive-fixnum)
-          (error
-           (insert "#_=> ")
-           (add-text-properties (- (point) 5) (point)
-                                '(font-lock-face font-lock-keyword-face
-                                  read-only t
-                                  intangible t
-                                  front-sticky t
-                                  rear-nonsticky t))))
-        (setq unrepl-input-start-mark (point))
-        (unrepl-eval cmd #'unrepl-repl-eval-callback)))))
+    (insert "\n")
+    (let ((inhibit-read-only t))
+      (add-text-properties (unrepl-@prompt-end) (point-max)
+                           '(read-only t
+                                       front-sticky t
+                                       rear-nonsticky t)))
+    (let ((cmd (buffer-substring-no-properties (unrepl-@input-start) (point-max))))
+      (condition-case nil
+          (scan-sexps (unrepl-@prompt-end) most-positive-fixnum)
+        (error
+         (insert "#_=> ")
+         (add-text-properties (- (point) 5) (point)
+                              '(font-lock-face font-lock-keyword-face
+                                               read-only t
+                                               intangible t
+                                               front-sticky t
+                                               rear-nonsticky t))))
+      (setf (unrepl-@input-start) (point))
+      (unrepl-eval cmd #'unrepl-repl-eval-callback))))
 
 (defun unrepl-eval (form handler)
   (push (a-list 'position (unrepl-@position)
@@ -319,7 +318,9 @@ instead."
            'session nil
            'actions nil
            'history nil
-           'position 0)
+           'position 0
+           'input-start 0
+           'prompt-end 0)
    (apply 'a-list kvs)))
 
 (defun unrepl-send-string (s)

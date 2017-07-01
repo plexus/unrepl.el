@@ -26,4 +26,16 @@
                                       (form . "(+ 8 8)\n")
                                       (handler . unrepl-repl-eval-callback))))))
 
+
+;; (unrepl-deftest multiple-forms-on-one-line
+;;   (receive! "[:unrepl/hello {:session :test123, :actions {:exit (do-exit)}}]")
+;;   (receive! "[:prompt {clojure.core/*ns* #unrepl/ns my.ns}]")
+;;   (assert-repl "my.ns=> ")
+
+;;   (type! "(+ 8 8) (+ 9 9)")
+;;   (assert-repl "(+ 8 8)\n")
+;;   (assert-sent "(+ 9 9)\n")
+
+;;   (should (equal (length (unrepl-@history)) 2 )))
+
 (provide 'unrepl-acceptance-test)
