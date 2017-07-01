@@ -34,12 +34,16 @@
    'action (lambda (b)
              (save-excursion
                (with-current-buffer (button-get b 'buffer)
-                 (let-alist (unrepl--connection)
-                   (goto-char (button-get b 'point))
-                   (delete-char 3)
-                   (process-send-string .process (concat (edn-print-string (button-get b 'get-more)) "\n")))
-                   )))))
-
+                 (unrepl-eval
+                  (concat (edn-print-string (button-get b 'get-more)) "\n")
+                  (lambda (result)
+                    (let ((inhibit-read-only t))
+                      (save-excursion
+                        (with-current-buffer (button-get b 'buffer)
+                          (goto-char (button-get b 'point))
+                          (delete-char 3)
+                          (unrepl--write-list-inner result)
+                          ))))))))))
 
 (defun unrepl--write-list-inner (edn)
   (-map-indexed (lambda (idx x)

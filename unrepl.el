@@ -37,7 +37,6 @@
 
 (defvar-local unrepl-input-start-mark nil)
 (defvar-local unrepl-prompt-end-mark nil)
-(defvar-local unrepl-hello-payload nil)
 (defvar-local unrepl-buffer-type nil)
 
 (defvar unrepl-connections nil
@@ -47,22 +46,22 @@
   "Connection used by the current buffer. An alist of process, repl-buffer, output-buffer, position, history.")
 
 (eval-when-compile
-  (defmacro unrepl-deffield (name)
-
+  (defmacro unrepl-deffield (scope name)
+    "Creates getters and setters"
     `(progn
        (defun ,(intern (concat "unrepl--@" (symbol-name name))) ()
-           (cdr (assq ',name (unrepl--connection))))
+         (cdr (assq ',name ,scope)))
        (defun ,(intern (concat "unrepl--" (symbol-name name))) ()
-           (assq ',name (unrepl--connection)))
+         (assq ',name ,scope))
        (cl-defmethod (setf ,(intern (concat "unrepl--@" (symbol-name name)))) (val)
-         (setf (cdr (assq ',name (unrepl--connection)))
+         (setf (cdr (assq ',name ,scope))
                val)))))
 
-(unrepl-deffield process)
-(unrepl-deffield repl-buffer)
-(unrepl-deffield output-buffer)
-(unrepl-deffield position)
-(unrepl-deffield history)
+(unrepl-deffield (unrepl--connection) process)
+(unrepl-deffield (unrepl--connection) repl-buffer)
+(unrepl-deffield (unrepl--connection) output-buffer)
+(unrepl-deffield (unrepl--connection) position)
+(unrepl-deffield (unrepl--connection) history)
 
 (defmacro unrepl-with-readonly-insert (&rest body)
   `(let ((__p (point))
@@ -108,9 +107,10 @@ instead."
 
 (defun unrepl--history-search (history position index)
   (let ((top (car history)))
-    (if (<= (alist-get 'position top) position)
-        index
-      (unrepl--history-search (cdr history) position (1+ index)))))
+    (when top
+      (if (<= (alist-get 'position top) position)
+          index
+        (unrepl--history-search (cdr history) position (1+ index))))))
 
 (defun unrepl--history-by-position (position)
   (seq-elt (unrepl--@history)
@@ -123,23 +123,23 @@ instead."
         value))
 
 (defun unrepl--history-idx (key value)
-  (let* ((conn (unrepl--connection))
-         (history (cdr (assq 'history conn))))
-    (seq-position history value
-                  (lambda (x y)
-                    (eq (cdr (assq key x)) y)))))
+  (seq-position (unrepl--@history) value
+                (lambda (x y)
+                  (eq (cdr (assq key x)) y))))
 
 (defun unrepl--history-by (key value)
-  (seq-elt (cdr (assq 'history (unrepl--connection)))
+  (seq-elt (unrepl--@history)
            (unrepl--history-idx key value)))
 
 (cl-defmethod (setf unrepl--history-by) (cmd key value)
-  (setf (seq-elt (cdr (assq 'history (unrepl--connection)))
+  (setf (seq-elt (unrepl--@history)
                  (unrepl--history-idx key value))
         cmd))
 
 (defun unrepl--handle-hello (payload)
-  (setq unrepl-hello-payload payload))
+  ;; TODO: store the actions for later use
+  ;;(setq unrepl-hello-payload payload)
+  )
 
 (defun unrepl--handle-prompt (payload)
   (when (not (eq (current-column) 0))
@@ -155,8 +155,15 @@ instead."
   (insert (ansi-color-apply payload)))
 
 (defun unrepl--handle-err (payload)
-  (if (eq (current-column) 0)
-      (unrepl--insert-with-face "#_err| " 'font-lock-warning-face))
+  (let ((line-prefix (buffer-substring-no-properties
+                      (line-beginning-position)
+                      (min (point-max) (+ 6 (line-beginning-position))))))
+    (if (eq (current-column) 0)
+        (unrepl--insert-with-face "#_err| " 'font-lock-warning-face)
+      (when (not (equal "#_err|" line-prefix))
+        (unrepl--insert-with-face "%" 'custom-set)
+        (insert "\n")
+        (unrepl--insert-with-face "#_err| " 'font-lock-warning-face))))
   (insert (ansi-color-apply payload)))
 
 ;; [:read {:from [2 1], :to [3 1], :offset 8, :len 8} 2]
@@ -192,12 +199,13 @@ instead."
    (unrepl--insert-with-face "#_log| " 'font-lock-constant-face)
    (unrepl--write payload)))
 
-
 (defun unrepl--handle-exception (payload)
-  (if (not (eq (current-column) 0))
-      (insert "\n"))
-  (unrepl--insert-with-face "#_exception| " 'font-lock-warning-face)
-  (insert (gethash :cause (gethash :ex payload))))
+  (unrepl-with-readonly-insert
+   (if (not (eq (current-column) 0))
+       (insert "\n"))
+   (unrepl--insert-with-face "#_exception| " 'font-lock-warning-face)
+   (insert (gethash :cause (caddr (gethash :ex payload))))
+   (insert "\n")))
 
 (defun unrepl-edn-handler (form)
   ;;(message (concat "->" (prin1-to-string form)))
@@ -263,7 +271,6 @@ instead."
   ;; TODO make this smarter, so buffers find the most suitable connection based
   ;; on path/project
   (or unrepl-connection (first unrepl-connections)))
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -341,11 +348,14 @@ instead."
                      :sentinel #'unrepl-process-sentinel))
            (repl-buffer (get-buffer-create repl-buffer-name))
            (output-buffer (get-buffer output-buffer-name))
-           (connection `((process . ,process)
-                         (repl-buffer . ,repl-buffer)
-                         (output-buffer . ,output-buffer)
-                         (position . 0)
-                         (history . nil))))
+           ;; not using a backtick here because it re-uses cons cells which we
+           ;; intend to mutate, leading to weird bugs
+           (connection (list
+                        (cons 'history nil)
+                        (cons 'position 0)
+                        (cons 'process process)
+                        (cons 'repl-buffer repl-buffer)
+                        (cons 'output-buffer output-buffer))))
 
       (with-current-buffer output-buffer
         (setq unrepl-connection connection)
