@@ -1,0 +1,20 @@
+language: generic
+dist: trusty
+env:
+  - VERSION=25.2.2 EMACS=emacs25
+  - VERSION=25.2.2 EMACS=emacs25 CLJ_PARSE_LINT=true
+
+matrix:
+  allow_failures:
+    - env: VERSION=25.2.2 EMACS=emacs25 CLJ_PARSE_LINT=true
+
+before_install:
+  - sudo add-apt-repository -y ppa:kelleyk/emacs
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq $EMACS
+
+script:
+  - $EMACS --version
+  - ls /usr/bin /usr/local/bin | grep emacs
+  - $EMACS --version | grep $VERSION
+  - $EMACS -batch -l unrepl-test-runner.el
