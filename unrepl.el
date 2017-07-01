@@ -49,19 +49,26 @@
   (defmacro unrepl-deffield (scope name)
     "Creates getters and setters"
     `(progn
-       (defun ,(intern (concat "unrepl--@" (symbol-name name))) ()
+       (defun ,(intern (concat "unrepl-@" (symbol-name name))) ()
          (cdr (assq ',name ,scope)))
        (defun ,(intern (concat "unrepl--" (symbol-name name))) ()
          (assq ',name ,scope))
-       (cl-defmethod (setf ,(intern (concat "unrepl--@" (symbol-name name)))) (val)
+       (cl-defmethod (setf ,(intern (concat "unrepl-@" (symbol-name name)))) (val)
          (setf (cdr (assq ',name ,scope))
-               val)))))
+               val))))
 
+  (defmacro unrepl-swap! (loc fn &rest args)
+    `(setf ,loc (,fn ,loc ,@args))))
+
+(unrepl-deffield (unrepl--connection) got-hello)
+(unrepl-deffield (unrepl--connection) session)
+(unrepl-deffield (unrepl--connection) actions)
 (unrepl-deffield (unrepl--connection) process)
 (unrepl-deffield (unrepl--connection) repl-buffer)
 (unrepl-deffield (unrepl--connection) output-buffer)
 (unrepl-deffield (unrepl--connection) position)
 (unrepl-deffield (unrepl--connection) history)
+(unrepl-deffield (unrepl--connection) write-fn)
 
 (defmacro unrepl-with-readonly-insert (&rest body)
   `(let ((__p (point))
@@ -113,26 +120,26 @@ instead."
         (unrepl--history-search (cdr history) position (1+ index))))))
 
 (defun unrepl--history-by-position (position)
-  (seq-elt (unrepl--@history)
-           (unrepl--history-search (unrepl--@history) position 0)))
+  (seq-elt (unrepl-@history)
+           (unrepl--history-search (unrepl-@history) position 0)))
 
 (cl-defmethod (setf unrepl--history-by-position) (value position)
   (setf (seq-elt
-         (unrepl--@history)
-         (unrepl--history-search (unrepl--@history) position 0))
+         (unrepl-@history)
+         (unrepl--history-search (unrepl-@history) position 0))
         value))
 
 (defun unrepl--history-idx (key value)
-  (seq-position (unrepl--@history) value
+  (seq-position (unrepl-@history) value
                 (lambda (x y)
                   (eq (cdr (assq key x)) y))))
 
 (defun unrepl--history-by (key value)
-  (seq-elt (unrepl--@history)
+  (seq-elt (unrepl-@history)
            (unrepl--history-idx key value)))
 
 (cl-defmethod (setf unrepl--history-by) (cmd key value)
-  (setf (seq-elt (unrepl--@history)
+  (setf (seq-elt (unrepl-@history)
                  (unrepl--history-idx key value))
         cmd))
 
@@ -208,44 +215,37 @@ instead."
    (insert "\n")))
 
 (defun unrepl-edn-handler (form)
-  ;;(message (concat "->" (prin1-to-string form)))
-  (let-alist (unrepl--connection)
-    (with-current-buffer .repl-buffer
-      (let ((tag (elt form 0))
-            (payload (elt form 1)))
-        (case tag
-          (:unrepl/hello (unrepl--handle-hello payload))
-          (:prompt (unrepl--handle-prompt payload))
-          (:read (unrepl--handle-read form))
-          (:started-eval (unrepl--handle-started-eval form))
-          (:eval (unrepl--handle-eval form))
-          (:out (unrepl--handle-out payload))
-          (:err (unrepl--handle-err payload))
-          (:bye (unrepl--handle-bye payload))
-          (:log (unrepl--handle-log payload))
-          (:exception (unrepl--handle-exception payload)))))))
+  (with-current-buffer (unrepl-@repl-buffer)
+    (let ((tag (elt form 0))
+          (payload (elt form 1)))
+      (case tag
+        (:unrepl/hello (unrepl--handle-hello payload))
+        (:prompt (unrepl--handle-prompt payload))
+        (:read (unrepl--handle-read form))
+        (:started-eval (unrepl--handle-started-eval form))
+        (:eval (unrepl--handle-eval form))
+        (:out (unrepl--handle-out payload))
+        (:err (unrepl--handle-err payload))
+        (:bye (unrepl--handle-bye payload))
+        (:log (unrepl--handle-log payload))
+        (:exception (unrepl--handle-exception payload))))))
 
 (defun unrepl-handle-output (proc string)
-  (let-alist (unrepl--connection)
-    (with-current-buffer .output-buffer
-      (goto-char (point-max))
-      (let ((orig-point (point)))
-        (insert string)
-        (goto-char orig-point)
-        ;;(message (prin1-to-string (list :ok orig-point (eq orig-point 0) string)))
+  (with-current-buffer (unrepl-@output-buffer)
+    (goto-char (point-max))
+    (save-excursion (insert string))
 
-        (when (eq orig-point 1)
-          (right-char 7)
-          (process-send-string .process (unrepl--read-blob))
-          ;; (search-forward "[:unrepl/hello")
-          ;; (left-char (length "[:unrepl/hello"))
-          )
+    (let ((hello "[:unrepl/hello"))
+      (when (string-match-p (regexp-quote hello) string)
+        (search-forward hello)
+        (left-char (length hello))
+        (setf (unrepl-@got-hello) t)))
 
-        (let ((form (unrepl--edn-read)))
-          ;;(prin1 (list "=>" form))
-          (while form
-            (unrepl-edn-handler form)
-            (setq form (unrepl--edn-read))))))))
+    (when (unrepl-@got-hello)
+      (let ((form (unrepl--edn-read)))
+        (while form
+          (unrepl-edn-handler form)
+          (setq form (unrepl--edn-read)))))))
 
 (defun unrepl-process-sentinel (proc event)
   ;;(message (concat "EVT->" (prin1-to-string event)))
@@ -306,16 +306,24 @@ instead."
         (unrepl-eval cmd #'unrepl-repl-eval-callback)))))
 
 (defun unrepl-eval (form handler)
-  (let* ((connection (unrepl--connection))
-         (position   (assq 'position connection))
-         (history    (assq 'history connection))
-         (process    (assq 'process connection)))
-    (push `((position . ,(cdr position))
-            (form . ,form)
-            (handler . ,handler))
-          (cdr history))
-    (process-send-string (cdr process) form)
-    (setcdr position (+ (length form) (cdr position)))))
+  (push (a-list 'position (unrepl-@position)
+                'form form
+                'handler handler)
+        (unrepl-@history))
+  (unrepl-send-string form)
+  (unrepl-swap! (unrepl-@position) + (length form)))
+
+(defun unrepl-make-connection (&rest kvs)
+  (a-merge
+   (a-list 'got-hello nil
+           'session nil
+           'actions nil
+           'history nil
+           'position 0)
+   (apply 'a-list kvs)))
+
+(defun unrepl-send-string (s)
+  (funcall (a-get (unrepl--connection) 'send-string-fn) s))
 
 (defun unrepl-connect (host-port)
   (interactive "MSocket repl host/port: ")
@@ -348,14 +356,11 @@ instead."
                      :sentinel #'unrepl-process-sentinel))
            (repl-buffer (get-buffer-create repl-buffer-name))
            (output-buffer (get-buffer output-buffer-name))
-           ;; not using a backtick here because it re-uses cons cells which we
-           ;; intend to mutate, leading to weird bugs
-           (connection (list
-                        (cons 'history nil)
-                        (cons 'position 0)
-                        (cons 'process process)
-                        (cons 'repl-buffer repl-buffer)
-                        (cons 'output-buffer output-buffer))))
+           (connection (unrepl-make-connection
+                        'process process
+                        'repl-buffer repl-buffer
+                        'output-buffer output-buffer
+                        'send-string-fn (lambda (s) (process-send-string process s)))))
 
       (with-current-buffer output-buffer
         (setq unrepl-connection connection)
@@ -367,17 +372,16 @@ instead."
         (setq unrepl-buffer-type 'repl))
 
       (push connection unrepl-connections)
+      (process-send-string process (unrepl--read-blob))
       (switch-to-buffer repl-buffer))))
 
 (defun unrepl-eval-last-sexp ()
   (interactive)
-  (let-alist (unrepl--connection)
-    (process-send-string .process (concat (unrepl-last-sexp) "\n"))))
+  (unrepl-send-string (concat (unrepl-last-sexp) "\n")))
 
 (defun unrepl-eval-defun ()
   (interactive)
-  (let-alist (unrepl--connection)
-    (process-send-string .process (concat (unrepl-defun-at-point) "\n"))))
+  (unrepl-send-string (concat (unrepl-defun-at-point) "\n")))
 
 (defun unrepl-close-all ()
   (interactive)
