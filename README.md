@@ -4,7 +4,7 @@
 
 An Emacs client for [unrepl](https://github.com/cgrand/unrepl).
 
-Depends on Emacs > 25.
+Depends on Emacs >= 25.
 
 *This is an alpha level proof of concept. Very rough around the edges. YMMV.*
 
