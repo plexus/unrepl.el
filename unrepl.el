@@ -27,6 +27,7 @@
 (require 'clojure-mode)
 (require 'dash)
 (require 'ansi-color)
+(require 'a)
 
 (require 'unrepl-reader)
 (require 'unrepl-writer)
