@@ -4,7 +4,7 @@
 
 ;; Author: Arne Brasseur <arne@arnebrasseur.net>
 ;; Keywords: tools, lisp, comm
-;; Package-Requires: ((clojure-mode "") (dash "") (let-alist "") (peg "0.6") (edn ""))
+;; Package-Requires: ((clojure-mode "") (dash "") (let-alist "") (peg "0.6") (edn "") (a "0.1.0alpha4")))
 
 ;; This program is free software; you can redistribute it and/or modify it under
 ;; the terms of the Mozilla Public License Version 2.0
@@ -26,6 +26,7 @@
 (require 'clojure-mode)
 (require 'dash)
 (require 'ansi-color)
+(require 'a)
 
 (require 'unrepl-reader)
 (require 'unrepl-writer)
