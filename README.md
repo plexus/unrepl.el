@@ -4,7 +4,7 @@
 
 An Emacs client for [unrepl](https://github.com/cgrand/unrepl).
 
-Depends on Emacs > 25.
+Depends on Emacs >= 25.
 
 *This is an alpha level proof of concept. Very rough around the edges. YMMV.*
 
@@ -17,11 +17,18 @@ Start a socket REPL, e.g.
 JAVA_OPTS="-Dclojure.server.unrepl={:address \"127.0.0.1\" :port 5555 :accept clojure.core.server/repl}" lein run -m clojure.main/main
 ```
 
-or
+or with Leiningen
 
 ```
 lein run -m clojure.main -e "(clojure.core.server/start-server {:port 5555 :name (str 'server) :accept 'clojure.core.server/repl}) (.join (Thread/currentThread))"
 ```
+
+or with Boot >= 2.7.2
+
+```
+boot socket-server --port 5555 wait
+```
+
 
 In Emacs
 
