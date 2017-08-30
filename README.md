@@ -6,7 +6,13 @@ An Emacs client for [unrepl](https://github.com/cgrand/unrepl).
 
 Depends on Emacs >= 25.
 
+## Project status
+
 *This is an alpha level proof of concept. Very rough around the edges. YMMV.*
+
+So far this has been a proof of concept of writing an unrepl client for Emacs. It kind of works as far as giving you a basic REPL goes. From there it has spun into a load of yak shaving, working on [a.el](https://github.com/plexus/a.el), which is more or less finished and available in MELPA, and working on [parseclj](https://github.com/lambdaisland/parseclj/), which is still a work in progress.
+
+All of this work is currently stalled as I had to take a step back from open source to deal with life and other things. I am committed to finishing parseclj to be a full-featured Clojure/EDN parser for Emacs Lisp, although I'm not making any claims about how long that will take. After that I may or may not revisit unrepl.el, which at that stage will more or less be a rewrite from scratch.
 
 ## Usage
 
